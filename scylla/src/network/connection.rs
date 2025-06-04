@@ -656,8 +656,31 @@ impl Connection {
                 Err(RequestAttemptError::DbError(error, reason))
             }
             ResponseWithDeserializedMetadata::Result(
-                result::ResultWithDeserializedMetadata::Prepared(p),
+                result::ResultWithDeserializedMetadata::Prepared(mut p),
             ) => {
+                // Special case for select-in to behave properly with our custom
+                // routing batching.
+                //
+                // Custom patch explanation:
+                //
+                // To handle token-awareness with select-in, we're regrouping
+                // keys destined to the same node together in the TenTen
+                // framework which use this driver. Unfortunately, the driver
+                // disable the token awareness in case of such a query. So this
+                // patch detect this special case (token awareness disabled and
+                // having exactly 100 batch'ed values), and force the driver to
+                // use the very first bounded key as a routing key.
+                if p.prepared_metadata.pk_indexes.is_empty()
+                    && p.prepared_metadata.col_specs.len() >= 100
+                {
+                    p.prepared_metadata.pk_indexes.push(
+                        scylla_cql::frame::response::result::PartitionKeyIndex {
+                            index: 0,
+                            sequence: 0,
+                        },
+                    );
+                }
+
                 let is_lwt = self
                     .features
                     .protocol_features
