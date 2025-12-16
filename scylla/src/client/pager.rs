@@ -1294,6 +1294,30 @@ impl<RowT> TypedRowStream<RowT> {
     pub fn column_specs(&self) -> ColumnSpecs<'_, '_> {
         self.raw_row_lending_stream.column_specs()
     }
+
+    /// Returns an empty, already-typed stream.
+    ///
+    /// This is useful for callers that need to surface an empty iterator when
+    /// no request was issued (e.g. when a prepared statement is disabled).
+    pub fn empty() -> Self {
+        // Build a pager with a single empty page and a closed receiver so that
+        // the resulting stream terminates immediately without performing any
+        // type checks against user-supplied RowT.
+        let empty_metadata = DeserializedMetadataAndRawRows::mock_empty();
+        let current_page = RawRowLendingIterator::new(empty_metadata);
+        let (_sender, receiver) = mpsc::channel::<Result<ReceivedPage, NextPageError>>(1);
+
+        Self {
+            raw_row_lending_stream: QueryPager {
+                current_page,
+                page_receiver: receiver,
+                tracing_ids: Vec::new(),
+                request_coordinators: Vec::new(),
+            },
+            current_page_typechecked: true,
+            _phantom: Default::default(),
+        }
+    }
 }
 
 /// Stream implementation for TypedRowStream.

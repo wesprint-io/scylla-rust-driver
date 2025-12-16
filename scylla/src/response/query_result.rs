@@ -127,6 +127,15 @@ impl QueryResult {
         }
     }
 
+    /// Creates an empty QueryResult without a coordinator.
+    ///
+    /// This is intended for consumer code that needs to represent an empty query
+    /// execution result in situations where no request was sent (e.g. a disabled
+    /// statement).
+    pub fn empty() -> Self {
+        Self::new_with_unknown_coordinator(None, None, Vec::new())
+    }
+
     pub(crate) fn deserialized_metadata_and_rows(&self) -> Option<&DeserializedMetadataAndRawRows> {
         self.deserialized_metadata_and_rows.as_ref()
     }
