@@ -294,7 +294,6 @@ pub(crate) use utils::test_utils;
 #[cfg(doctest)]
 mod book_tests;
 
-#[cfg(all(scylla_unstable, feature = "unstable-testing"))]
 #[doc(hidden)]
 pub mod internal_testing {
     use crate::serialize::row::SerializedValues;
