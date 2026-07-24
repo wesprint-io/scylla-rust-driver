@@ -100,7 +100,7 @@ chrono = { version = "0.4.32", default-features = false, features = ["clock"] }
 futures = "0.3.6"
 # Part of ReplicaSet::choose_filtered public API.
 # Used internally in some other places (mostly in LBP / routing).
-rand = "0.9.0"
+rand = "0.10.2"
 
 #####################
 # TLS implementations
@@ -134,7 +134,7 @@ socket2 = { version = "0.5.3", features = ["all"] }
 # Useful operations on iterators.
 itertools = "0.14.0"
 # Used by DefaultPolicy to have reproducible randomness.
-rand_pcg = "0.9.0"
+rand_pcg = "0.10.2"
 # Used in execution profiles and ClusterState.
 arc-swap = "1.3.0"
 # Used in tablets to have a hashmap queryable with borrowed key.
@@ -152,7 +152,7 @@ criterion = "0.6"
 tokio = { version = "1.34", features = ["test-util", "process", "fs"] }
 tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
 assert_matches = "1.5.0"
-rand_chacha = "0.9.0"
+rand_chacha = "0.10.0"
 time = "0.3"
 anyhow = "1.0.98"
 tempfile = "3.19"

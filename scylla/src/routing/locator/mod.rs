@@ -17,7 +17,7 @@ pub(crate) mod tablets;
 pub(crate) mod test;
 mod token_ring;
 
-use rand::{Rng, seq::IteratorRandom};
+use rand::{Rng, RngExt, seq::IteratorRandom};
 use scylla_cql::frame::response::result::TableSpec;
 pub use token_ring::TokenRing;
 
