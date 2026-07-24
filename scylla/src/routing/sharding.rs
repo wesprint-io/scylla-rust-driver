@@ -3,7 +3,7 @@ use std::num::NonZeroU16;
 use std::ops::RangeInclusive;
 
 use itertools::Either;
-use rand::Rng as _;
+use rand::RngExt as _;
 use thiserror::Error;
 
 use super::Token;

@@ -671,7 +671,7 @@ impl std::fmt::Debug for Metrics {
 
 #[cfg(test)]
 mod tests {
-    use rand::{Rng, SeedableRng};
+    use rand::{RngExt, SeedableRng};
 
     use crate::observability::metrics::Snapshot;
 

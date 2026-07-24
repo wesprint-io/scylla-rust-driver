@@ -18,7 +18,7 @@ pub(crate) mod test;
 mod token_ring;
 
 use crate::frame::response::result::TableSpec;
-use rand::{Rng, seq::IteratorRandom};
+use rand::{Rng, RngExt, seq::IteratorRandom};
 pub use token_ring::TokenRing;
 
 use self::tablets::{TabletVersion, TabletsInfo};

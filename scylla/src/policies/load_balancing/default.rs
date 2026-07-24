@@ -14,7 +14,7 @@ use crate::{
     routing::{Shard, Token},
 };
 use itertools::{Either, Itertools};
-use rand::{Rng, prelude::SliceRandom, rng};
+use rand::{RngExt, prelude::SliceRandom, rng};
 use rand_pcg::Pcg32;
 use std::hash::{Hash, Hasher};
 use std::{fmt, sync::Arc, time::Duration};

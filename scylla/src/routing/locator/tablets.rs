@@ -75,7 +75,7 @@ use uuid::Uuid;
 use crate::cluster::Node;
 use crate::routing::{Shard, Token};
 use crate::utils::safe_format::IteratorSafeFormatExt;
-use rand::Rng as _;
+use rand::RngExt as _;
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;

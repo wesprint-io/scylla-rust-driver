@@ -27,7 +27,7 @@ use crate::frame::response::result::{ColumnSpec, TableSpec};
 use crate::parse_utils::{ParseErrorCause, ParseResult, ParserState};
 use futures::{FutureExt, Stream, StreamExt, TryStreamExt, future, stream};
 use itertools::{Either, Itertools};
-use rand::Rng;
+use rand::RngExt;
 use tracing::{debug, trace, warn};
 use uuid::Uuid;
 

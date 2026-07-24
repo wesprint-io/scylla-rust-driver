@@ -424,7 +424,7 @@ pub(crate) fn calculate_token_for_partition_key(
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
+    use rand::{Rng, RngExt};
     use rand_pcg::Pcg32;
 
     use crate::test_utils::setup_tracing;
