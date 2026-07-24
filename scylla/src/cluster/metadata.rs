@@ -39,7 +39,7 @@ use futures::Stream;
 use futures::future::{self, FutureExt};
 use futures::stream::{self, StreamExt, TryStreamExt};
 use rand::seq::{IndexedRandom, SliceRandom};
-use rand::{Rng, rng};
+use rand::{RngExt, rng};
 use scylla_cql::frame::response::result::{ColumnSpec, TableSpec};
 use std::borrow::BorrowMut;
 use std::cell::Cell;
