@@ -70,6 +70,8 @@ struct NextReceivedPage {
     rows: DeserializedMetadataAndRawRows,
     tracing_id: Option<Uuid>,
     request_coordinator: Option<Coordinator>,
+    /// Bytes this page took on the network, before being uncompressed.
+    wire_body_size: usize,
 }
 
 /*
@@ -111,6 +113,8 @@ struct FirstReceivedPage {
     content: FirstPageContent,
     tracing_id: Option<Uuid>,
     request_coordinator: Coordinator,
+    /// Bytes this page took on the network, before being uncompressed.
+    wire_body_size: usize,
 }
 
 type ResultNextPage = Result<NextReceivedPage, NextPageError>;
@@ -287,6 +291,8 @@ impl PagingExecutor {
                             },
                             tracing_id: None,
                             request_coordinator: coordinator,
+                            // No response was received, so nothing came over the wire.
+                            wire_body_size: 0,
                         },
                         ShouldFetchMorePages::NoMorePages,
                     ))
@@ -385,6 +391,7 @@ impl PagingExecutor {
                         result::ResultWithDeserializedMetadata::Rows((rows, paging_state_response)),
                     ),
                 tracing_id,
+                wire_body_size,
                 ..
             } => {
                 request_span.record_raw_rows_fields(&rows);
@@ -402,6 +409,7 @@ impl PagingExecutor {
                         content: FirstPageContent::Rows { rows },
                         tracing_id,
                         request_coordinator: coordinator,
+                        wire_body_size,
                     },
                     should_fetch_more_pages,
                 ))
@@ -412,12 +420,14 @@ impl PagingExecutor {
                         result::ResultWithDeserializedMetadata::SetKeyspace(set_keyspace),
                     ),
                 tracing_id,
+                wire_body_size,
                 ..
             } => Ok((
                 FirstReceivedPage {
                     content: FirstPageContent::SetKeyspace { set_keyspace },
                     tracing_id,
                     request_coordinator: coordinator,
+                    wire_body_size,
                 },
                 ShouldFetchMorePages::NoMorePages,
             )),
@@ -427,18 +437,21 @@ impl PagingExecutor {
                         result::ResultWithDeserializedMetadata::SchemaChange(schema_change),
                     ),
                 tracing_id,
+                wire_body_size,
                 ..
             } => Ok((
                 FirstReceivedPage {
                     content: FirstPageContent::SchemaChange { schema_change },
                     tracing_id,
                     request_coordinator: coordinator,
+                    wire_body_size,
                 },
                 ShouldFetchMorePages::NoMorePages,
             )),
             NonErrorQueryResponse {
                 response: NonErrorResponseWithDeserializedMetadata::Result(_),
                 tracing_id,
+                wire_body_size,
                 ..
             } => {
                 // We have most probably sent a modification statement (e.g. INSERT or UPDATE),
@@ -451,6 +464,7 @@ impl PagingExecutor {
                         },
                         tracing_id,
                         request_coordinator: coordinator,
+                        wire_body_size,
                     },
                     ShouldFetchMorePages::NoMorePages,
                 ))
@@ -468,6 +482,7 @@ impl PagingExecutor {
         response: NonErrorQueryResponse,
     ) -> Result<(NextReceivedPage, ShouldFetchMorePages), RequestError> {
         let tracing_id = response.tracing_id;
+        let wire_body_size = response.wire_body_size;
         match response.response {
             NonErrorResponseWithDeserializedMetadata::Result(
                 result::ResultWithDeserializedMetadata::Rows((rows, paging_state_response)),
@@ -478,6 +493,7 @@ impl PagingExecutor {
                     rows,
                     tracing_id,
                     request_coordinator: Some(coordinator.clone()),
+                    wire_body_size,
                 };
                 let should_fetch_more_pages = match paging_state_response {
                     PagingStateResponse::HasMorePages { state } => {
@@ -620,6 +636,7 @@ impl SingleConnectionPagingExecutor {
         };
 
         let tracing_id = response.tracing_id;
+        let wire_body_size = response.wire_body_size;
         match response.response {
             NonErrorResponseWithDeserializedMetadata::Result(
                 result::ResultWithDeserializedMetadata::Rows((rows, paging_state_response)),
@@ -628,6 +645,7 @@ impl SingleConnectionPagingExecutor {
                     rows,
                     tracing_id,
                     request_coordinator: None,
+                    wire_body_size,
                 },
                 paging_state_response,
             )),
@@ -703,6 +721,7 @@ pub struct QueryPager {
     page_receiver: mpsc::Receiver<Result<NextReceivedPage, NextPageError>>,
     tracing_ids: Vec<Uuid>,
     request_coordinators: Vec<Coordinator>,
+    wire_body_size: usize,
 }
 
 // QueryPager is not an iterator or a stream! However, it implements
@@ -792,6 +811,8 @@ impl QueryPager {
 
         s.request_coordinators
             .extend(received_page.request_coordinator);
+
+        s.wire_body_size += received_page.wire_body_size;
 
         Poll::Ready(Some(Ok(())))
     }
@@ -1173,6 +1194,7 @@ If you are using this API, you are probably doing something wrong."
             rows,
             tracing_id,
             request_coordinator,
+            wire_body_size,
         } = first_page;
 
         Ok(Self {
@@ -1180,6 +1202,7 @@ If you are using this API, you are probably doing something wrong."
             page_receiver: receiver,
             tracing_ids: Vec::from_iter(tracing_id),
             request_coordinators: Vec::from_iter(request_coordinator),
+            wire_body_size,
         })
     }
 
@@ -1191,6 +1214,7 @@ If you are using this API, you are probably doing something wrong."
         let tracing_ids = Vec::from_iter(first_page.tracing_id);
         let coordinator_id = first_page.request_coordinator.node().host_id;
         let request_coordinators = vec![first_page.request_coordinator];
+        let wire_body_size = first_page.wire_body_size;
 
         let first_page = match first_page.content {
             FirstPageContent::Rows { rows } => RawRowLendingIterator::new(rows),
@@ -1208,6 +1232,8 @@ If you are using this API, you are probably doing something wrong."
                     ),
                     tracing_id: None,
                     warnings: Vec::new(),
+                    // Rebuilt locally from the first page, which is already accounted for.
+                    wire_body_size: 0,
                 };
                 session.handle_set_keyspace_response(&response).await?;
                 // The stream will be empty.
@@ -1227,6 +1253,8 @@ If you are using this API, you are probably doing something wrong."
                     ),
                     tracing_id: None,
                     warnings: Vec::new(),
+                    // Rebuilt locally from the first page, which is already accounted for.
+                    wire_body_size: 0,
                 };
                 session
                     .handle_auto_await_schema_agreement(&response, coordinator_id)
@@ -1241,6 +1269,7 @@ If you are using this API, you are probably doing something wrong."
             page_receiver: receiver,
             tracing_ids,
             request_coordinators,
+            wire_body_size,
         })
     }
 
@@ -1260,6 +1289,16 @@ If you are using this API, you are probably doing something wrong."
     #[inline]
     pub fn column_specs(&self) -> ColumnSpecs<'_, '_> {
         ColumnSpecs::new(self.current_page.metadata().col_specs())
+    }
+
+    /// Total bytes received so far for the pages that have been fetched.
+    ///
+    /// Measured before decompression and decoding, so with compression on this
+    /// is the compressed size. It grows as pages arrive, so it is only the
+    /// whole answer once the stream has been read to the end.
+    #[inline]
+    pub fn wire_body_size(&self) -> usize {
+        self.wire_body_size
     }
 
     fn is_current_page_exhausted(&self) -> bool {
@@ -1325,6 +1364,14 @@ impl<RowT> TypedRowStream<RowT> {
         self.raw_row_lending_stream.column_specs()
     }
 
+    /// Total bytes received so far for the pages that have been fetched.
+    ///
+    /// See [QueryPager::wire_body_size].
+    #[inline]
+    pub fn wire_body_size(&self) -> usize {
+        self.raw_row_lending_stream.wire_body_size()
+    }
+
     /// Returns an empty, already-typed stream.
     ///
     /// This is useful for callers that need to surface an empty iterator when
@@ -1343,6 +1390,7 @@ impl<RowT> TypedRowStream<RowT> {
                 page_receiver: receiver,
                 tracing_ids: Vec::new(),
                 request_coordinators: Vec::new(),
+                wire_body_size: 0,
             },
             current_page_typechecked: true,
             _phantom: Default::default(),
