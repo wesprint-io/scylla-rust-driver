@@ -1379,6 +1379,10 @@ impl Connection {
         features: &ProtocolFeatures,
         cached_metadata: Option<&Arc<ResultMetadata<'static>>>,
     ) -> Result<QueryResponse, ResponseParseError> {
+        // Measured before parsing, so this is what the socket actually
+        // delivered: still compressed if compression was negotiated.
+        let wire_body_size = task_response.body.len();
+
         let body_with_ext = frame::parse_response_body_extensions(
             task_response.params.flags,
             compression,
@@ -1410,6 +1414,7 @@ impl Connection {
             warnings: body_with_ext.warnings,
             tracing_id: body_with_ext.trace_id,
             custom_payload: body_with_ext.custom_payload,
+            wire_body_size,
         })
     }
 
@@ -2325,6 +2330,84 @@ impl VerifiedKeyspaceName {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod wire_body_size_tests {
+    use bytes::Bytes;
+    use scylla_cql::frame::protocol_features::ProtocolFeatures;
+    use scylla_cql::frame::{Compression, FrameParams, compress_append, flag};
+    use scylla_cql::frame::response::ResponseOpcode;
+
+    use super::{Connection, TaskResponse};
+
+    /// The smallest valid RESULT body there is: the four byte "Void" kind.
+    fn void_result_body() -> Vec<u8> {
+        vec![0, 0, 0, 1]
+    }
+
+    /// The size we report has to be what the socket handed us, which for a
+    /// compressed frame is the compressed length and not the length after the
+    /// driver has expanded it again.
+    #[test]
+    fn reports_the_compressed_length_for_a_compressed_frame() {
+        let uncompressed = void_result_body();
+        let mut compressed = Vec::new();
+        compress_append(&uncompressed, Compression::Snappy, &mut compressed)
+            .expect("snappy compression should succeed");
+        assert_ne!(
+            compressed.len(),
+            uncompressed.len(),
+            "test is pointless unless compressing actually changes the length"
+        );
+
+        let response = Connection::parse_response(
+            TaskResponse {
+                params: FrameParams {
+                    version: 0x84,
+                    flags: flag::COMPRESSION,
+                    stream: 0,
+                },
+                opcode: ResponseOpcode::Result,
+                body: Bytes::from(compressed.clone()),
+            },
+            Some(Compression::Snappy),
+            &ProtocolFeatures::default(),
+            None,
+        )
+        .expect("a void result frame should parse");
+
+        assert_eq!(
+            response.wire_body_size,
+            compressed.len(),
+            "should report what arrived, not what it expanded to"
+        );
+    }
+
+    /// With no compression negotiated the two lengths coincide, which is the
+    /// case that has to keep working exactly as before.
+    #[test]
+    fn reports_the_plain_length_when_nothing_is_compressed() {
+        let body = void_result_body();
+
+        let response = Connection::parse_response(
+            TaskResponse {
+                params: FrameParams {
+                    version: 0x84,
+                    flags: 0,
+                    stream: 0,
+                },
+                opcode: ResponseOpcode::Result,
+                body: Bytes::from(body.clone()),
+            },
+            None,
+            &ProtocolFeatures::default(),
+            None,
+        )
+        .expect("a void result frame should parse");
+
+        assert_eq!(response.wire_body_size, body.len());
     }
 }
 

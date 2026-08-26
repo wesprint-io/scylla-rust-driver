@@ -19,6 +19,10 @@ pub(crate) struct QueryResponse {
     pub(crate) warnings: Vec<String>,
     // This is not exposed to user (yet?)
     pub(crate) custom_payload: Option<HashMap<String, Bytes>>,
+    // Size of the response body as it came off the socket, before it was
+    // decompressed or decoded. Carried all the way to the user so that callers
+    // can measure what the server really sent them.
+    pub(crate) wire_body_size: usize,
 }
 
 // A QueryResponse in which response can not be Response::Error
@@ -26,6 +30,7 @@ pub(crate) struct NonErrorQueryResponse {
     pub(crate) response: NonErrorResponseWithDeserializedMetadata,
     pub(crate) tracing_id: Option<Uuid>,
     pub(crate) warnings: Vec<String>,
+    pub(crate) wire_body_size: usize,
 }
 
 impl QueryResponse {
@@ -36,6 +41,7 @@ impl QueryResponse {
             response: self.response.into_non_error_response()?,
             tracing_id: self.tracing_id,
             warnings: self.warnings,
+            wire_body_size: self.wire_body_size,
         })
     }
 }
@@ -67,6 +73,7 @@ impl NonErrorQueryResponse {
             response,
             tracing_id,
             warnings,
+            wire_body_size,
         } = self;
         let (raw_rows, paging_state_response) = match response {
             NonErrorResponseWithDeserializedMetadata::Result(
@@ -86,7 +93,8 @@ impl NonErrorQueryResponse {
             match request_coordinator {
                 Some(coordinator) => QueryResult::new(coordinator, raw_rows, tracing_id, warnings),
                 None => QueryResult::new_with_unknown_coordinator(raw_rows, tracing_id, warnings),
-            },
+            }
+            .with_wire_body_size(wire_body_size),
             paging_state_response,
         ))
     }

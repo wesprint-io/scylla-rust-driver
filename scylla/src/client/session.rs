@@ -1116,6 +1116,8 @@ impl Session {
                 ),
                 tracing_id: None,
                 warnings: Vec::new(),
+                // No response was received, so nothing came over the wire.
+                wire_body_size: 0,
             },
             RunRequestResult::Completed(response) => response,
         };
@@ -1494,6 +1496,8 @@ impl Session {
                 ),
                 tracing_id: None,
                 warnings: Vec::new(),
+                // No response was received, so nothing came over the wire.
+                wire_body_size: 0,
             },
             RunRequestResult::Completed(response) => response,
         };

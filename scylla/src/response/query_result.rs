@@ -78,6 +78,7 @@ pub struct QueryResult {
     deserialized_metadata_and_rows: Option<DeserializedMetadataAndRawRows>,
     tracing_id: Option<Uuid>,
     warnings: Vec<String>,
+    wire_body_size: usize,
 }
 
 impl QueryResult {
@@ -92,6 +93,7 @@ impl QueryResult {
             deserialized_metadata_and_rows: raw_rows,
             tracing_id,
             warnings,
+            wire_body_size: 0,
         }
     }
 
@@ -113,6 +115,7 @@ impl QueryResult {
             deserialized_metadata_and_rows: raw_rows,
             tracing_id,
             warnings,
+            wire_body_size: 0,
         }
     }
 
@@ -124,6 +127,7 @@ impl QueryResult {
             deserialized_metadata_and_rows: None,
             tracing_id: None,
             warnings: Vec::new(),
+            wire_body_size: 0,
         }
     }
 
@@ -134,6 +138,27 @@ impl QueryResult {
     /// statement).
     pub fn empty() -> Self {
         Self::new_with_unknown_coordinator(None, None, Vec::new())
+    }
+
+    /// Records how many bytes the server actually sent for this response.
+    ///
+    /// Set by the connection right after the frame is read, so it is the size
+    /// before anything is decompressed or decoded.
+    pub(crate) fn with_wire_body_size(mut self, wire_body_size: usize) -> Self {
+        self.wire_body_size = wire_body_size;
+        self
+    }
+
+    /// The number of bytes of the response body as it arrived from the server.
+    ///
+    /// This is measured before decompression and before any decoding, so when
+    /// compression is negotiated this is the compressed size. It covers the
+    /// whole body of the response (result metadata included), but not the nine
+    /// byte frame header. It is `0` for results that never came from a server,
+    /// such as [QueryResult::empty].
+    #[inline]
+    pub fn wire_body_size(&self) -> usize {
+        self.wire_body_size
     }
 
     pub(crate) fn deserialized_metadata_and_rows(&self) -> Option<&DeserializedMetadataAndRawRows> {
@@ -226,12 +251,14 @@ impl QueryResult {
         let tracing_id = self.tracing_id;
         let warnings = self.warnings;
         let request_coordinator = self.request_coordinator;
+        let wire_body_size = self.wire_body_size;
 
         Ok(QueryRowsResult {
             request_coordinator,
             raw_rows_with_metadata,
             warnings,
             tracing_id,
+            wire_body_size,
         })
     }
 }
@@ -273,6 +300,7 @@ pub struct QueryRowsResult {
     raw_rows_with_metadata: DeserializedMetadataAndRawRows,
     tracing_id: Option<Uuid>,
     warnings: Vec<String>,
+    wire_body_size: usize,
 }
 
 impl QueryRowsResult {
@@ -303,9 +331,21 @@ impl QueryRowsResult {
     }
 
     /// Returns the size of the serialized rows.
+    ///
+    /// NOTE: this is the size after decompression and after the response frame
+    /// has been parsed, and it counts the rows only. For what the server
+    /// actually put on the wire, use [QueryRowsResult::wire_body_size].
     #[inline]
     pub fn rows_bytes_size(&self) -> usize {
         self.raw_rows_with_metadata.rows_bytes_size()
+    }
+
+    /// The number of bytes of the response body as it arrived from the server.
+    ///
+    /// See [QueryResult::wire_body_size].
+    #[inline]
+    pub fn wire_body_size(&self) -> usize {
+        self.wire_body_size
     }
 
     /// Returns column specifications.

@@ -62,6 +62,8 @@ struct ReceivedPage {
     rows: DeserializedMetadataAndRawRows,
     tracing_id: Option<Uuid>,
     request_coordinator: Option<Coordinator>,
+    /// Bytes this page took on the network, before being uncompressed.
+    wire_body_size: usize,
 }
 
 pub(crate) struct PreparedPagerConfig {
@@ -123,6 +125,8 @@ mod checked_channel_sender {
                 rows: DeserializedMetadataAndRawRows::mock_empty(),
                 tracing_id,
                 request_coordinator,
+                // Made up locally, nothing was received for it.
+                wire_body_size: 0,
             };
             self.send(Ok(empty_page)).await
         }
@@ -450,6 +454,7 @@ where
                         result::ResultWithDeserializedMetadata::Rows((rows, paging_state_response)),
                     ),
                 tracing_id,
+                wire_body_size,
                 ..
             }) => {
                 #[cfg(feature = "metrics")]
@@ -465,6 +470,7 @@ where
                     rows,
                     tracing_id,
                     request_coordinator: Some(coordinator),
+                    wire_body_size,
                 };
 
                 // Send next page to QueryPager
@@ -690,6 +696,7 @@ where
                             rows,
                             tracing_id: response.tracing_id,
                             request_coordinator: None,
+                            wire_body_size: response.wire_body_size,
                         }))
                         .await;
 
@@ -739,6 +746,7 @@ pub struct QueryPager {
     page_receiver: mpsc::Receiver<Result<ReceivedPage, NextPageError>>,
     tracing_ids: Vec<Uuid>,
     request_coordinators: Vec<Coordinator>,
+    wire_body_size: usize,
 }
 
 // QueryPager is not an iterator or a stream! However, it implements
@@ -816,6 +824,8 @@ impl QueryPager {
 
         s.request_coordinators
             .extend(received_page.request_coordinator);
+
+        s.wire_body_size += received_page.wire_body_size;
 
         Poll::Ready(Some(Ok(())))
     }
@@ -1211,6 +1221,7 @@ If you are using this API, you are probably doing something wrong."
                 Vec::new()
             },
             request_coordinators: Vec::from_iter(page_received.request_coordinator),
+            wire_body_size: page_received.wire_body_size,
         })
     }
 
@@ -1230,6 +1241,16 @@ If you are using this API, you are probably doing something wrong."
     #[inline]
     pub fn column_specs(&self) -> ColumnSpecs<'_, '_> {
         ColumnSpecs::new(self.current_page.metadata().col_specs())
+    }
+
+    /// Total bytes received so far for the pages that have been fetched.
+    ///
+    /// Measured before decompression and decoding, so with compression on this
+    /// is the compressed size. It grows as pages arrive, so it is only the
+    /// whole answer once the stream has been read to the end.
+    #[inline]
+    pub fn wire_body_size(&self) -> usize {
+        self.wire_body_size
     }
 
     fn is_current_page_exhausted(&self) -> bool {
@@ -1295,6 +1316,14 @@ impl<RowT> TypedRowStream<RowT> {
         self.raw_row_lending_stream.column_specs()
     }
 
+    /// Total bytes received so far for the pages that have been fetched.
+    ///
+    /// See [QueryPager::wire_body_size].
+    #[inline]
+    pub fn wire_body_size(&self) -> usize {
+        self.raw_row_lending_stream.wire_body_size()
+    }
+
     /// Returns an empty, already-typed stream.
     ///
     /// This is useful for callers that need to surface an empty iterator when
@@ -1313,6 +1342,7 @@ impl<RowT> TypedRowStream<RowT> {
                 page_receiver: receiver,
                 tracing_ids: Vec::new(),
                 request_coordinators: Vec::new(),
+                wire_body_size: 0,
             },
             current_page_typechecked: true,
             _phantom: Default::default(),
